@@ -14,7 +14,7 @@ Entrada
 
 Saída
 -
-- Relatório por disciplina com a situação do aluno, a nota mínima necessária nas avaliações restantes e as faltas ainda permitidas
+- Relatório por disciplina com a situação do aluno, a nota mínima necessária nas avaliações restantes, as faltas ainda permitidas e a chance de reprovação
 
 # Referência
 SILVA, Andréa Ferreira da; ALMEIDA, Aléssio Tony Cavalcanti de; RAMALHO, Hilton Martins de Brito. Predição do Risco de Reprovação no Ensino Superior Usando Algoritmos de Machine Learning. Teoria e Prática em Administração, v. 10, n. 2, p. 58-80, jul.-dez. 2020. DOI: 10.21714/2238-104X2020v10i2-51124. 
