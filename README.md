@@ -1,5 +1,5 @@
 # Sistema de Reprovação
-O sistema ajuda estudantes universitários a acompanhar sua situação nas disciplinas ao longo do semestre, seguindo as regras de avaliação definidas por cada professor. O aluno fornece ao sistema um CSV com suas notas e faltas e um JSON com as regras de cada disciplina, conforme o plano de ensino. O sistema valida os dados, calcula as médias e a frequência, e retorna um relatório com o desempenho do aluno, com nota mínima necessária nas próximas avaliações e o número de faltas ainda permitidas, além de prever a chance de reprovação do aluno.
+O sistema ajuda estudantes universitários a acompanhar sua situação nas disciplinas ao longo do semestre, seguindo as regras de avaliação definidas por cada professor. O aluno fornece ao sistema um CSV com suas notas e faltas e um JSON com as regras de cada disciplina, conforme o plano de ensino. O sistema valida os dados, calcula as médias e a frequência, e retorna um relatório com o desempenho do aluno, com nota mínima necessária nas próximas avaliações e o número de faltas ainda permitidas, além de prever a chance de reprovação do aluno
 
 # Equipe
 - Eduardo Moscatelli Martinho
