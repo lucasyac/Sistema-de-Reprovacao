@@ -19,3 +19,9 @@ Saída
 # Referência
 SILVA, Andréa Ferreira da; ALMEIDA, Aléssio Tony Cavalcanti de; RAMALHO, Hilton Martins de Brito. Predição do Risco de Reprovação no Ensino Superior Usando Algoritmos de Machine Learning. Teoria e Prática em Administração, v. 10, n. 2, p. 58-80, jul.-dez. 2020. DOI: 10.21714/2238-104X2020v10i2-51124. 
 Disponível em: http://dx.doi.org/10.21714/2238-104X2020v10i2-51124
+
+## Estrutura
+```
+docs/               histórias de usuário
+tests/              testes 
+```
