@@ -23,5 +23,11 @@ Disponível em: http://dx.doi.org/10.21714/2238-104X2020v10i2-51124
 ## Estrutura
 ```
 docs/               histórias de usuário
+sistema/
+├── calculo.py      regras de negocio
+├── carregador.py   carrega os arquivos
+├── cli.py          terminal
+├── predicao.py     modelo de regressao linear
+├── relatorio.py    geração do relatorio
 tests/              testes 
 ```
