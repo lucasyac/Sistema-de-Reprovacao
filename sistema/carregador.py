@@ -1,10 +1,15 @@
-#Leitura e validacao dos arquivos de entrada (CSV e JSON).
+"""Leitura e validacao dos arquivos de entrada (CSV e JSON)."""
+
 import csv
 import json
+import unicodedata
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Optional
+
 
 class DadosInvalidosError(ValueError):
-    """Arquivo de entrada com formato ou conteúdo inválido."""
+    """Arquivo de entrada com formato ou conteudo invalido."""
 
 
 NOTA_MINIMA, NOTA_MAXIMA = 0.0, 10.0
@@ -17,7 +22,6 @@ def _ler_csv(caminho, colunas_obrigatorias):
     if not caminho.is_file():
         raise DadosInvalidosError(f"Arquivo não encontrado: {caminho}")
 
-    #descarta o  que o Excel costuma gravar no início do CSV.
     with caminho.open(newline="", encoding="utf-8-sig") as arquivo:
         leitor = csv.DictReader(arquivo)
         colunas = [c.strip() for c in (leitor.fieldnames or [])]
@@ -28,7 +32,7 @@ def _ler_csv(caminho, colunas_obrigatorias):
                 f"{', '.join(faltando)}"
             )
         linhas = []
-        for numero, linha in enumerate(leitor, start=2):  # linha 1 = cabeçalho
+        for numero, linha in enumerate(leitor, start=2): 
             limpa = {
                 (k or "").strip(): (v or "").strip() for k, v in linha.items() if k
             }
@@ -37,7 +41,7 @@ def _ler_csv(caminho, colunas_obrigatorias):
 
 
 def converter_nota(texto, onde):
-    """'' -> None (pendente). aceita virgula decimal. exige 0 <= nota <= 10."""
+    """'' -> None (pendente); aceita vírgula decimal; exige 0 <= nota <= 10."""
     if texto == "":
         return None
     try:
@@ -59,9 +63,8 @@ def _converter_inteiro(texto, onde, campo):
     return valor
 
 
-# REGRAS DO PROFESSOR(JSON)-
-def carregar_regras(caminho):
-    """Le e valida o JSON de regras. Devolve {disciplina: {media_aprovacao, avaliacoes}}."""
+#REGRAS DO PROFESSOR
+def _ler_json(caminho):
     caminho = Path(caminho)
     if not caminho.is_file():
         raise DadosInvalidosError(f"Arquivo não encontrado: {caminho}")
@@ -69,40 +72,61 @@ def carregar_regras(caminho):
         bruto = json.loads(caminho.read_text(encoding="utf-8-sig"))
     except json.JSONDecodeError as erro:
         raise DadosInvalidosError(f"{caminho.name}: JSON inválido ({erro}).") from None
-
     if not isinstance(bruto, dict) or not bruto:
-        raise DadosInvalidosError(f"{caminho.name}: esperado um objeto com disciplinas.")
-
-    regras = {}
-    for disciplina, conteudo in bruto.items():
-        onde = f"{caminho.name}, disciplina '{disciplina}'"
-        if not isinstance(conteudo, dict) or "avaliacoes" not in conteudo:
-            raise DadosInvalidosError(f"{onde}: campo 'avaliacoes' é obrigatório.")
-
-        media = conteudo.get("media_aprovacao", 6.0)
-        if isinstance(media, bool) or not isinstance(media, (int, float)):
-            raise DadosInvalidosError(f"{onde}: 'media_aprovacao' deve ser numérica.")
-        if not 0 < media <= NOTA_MAXIMA:
-            raise DadosInvalidosError(f"{onde}: 'media_aprovacao' deve estar entre 0 e 10.")
-
-        avaliacoes = conteudo["avaliacoes"]
-        if not isinstance(avaliacoes, dict) or not avaliacoes:
-            raise DadosInvalidosError(f"{onde}: 'avaliacoes' deve ter ao menos uma avaliação.")
-        pesos = {}
-        for nome, peso in avaliacoes.items():
-            if isinstance(peso, bool) or not isinstance(peso, (int, float)) or peso <= 0:
-                raise DadosInvalidosError(f"{onde}: peso de '{nome}' deve ser um número > 0.")
-            pesos[nome] = float(peso)
-        if abs(sum(pesos.values()) - 1.0) > 1e-6:
-            raise DadosInvalidosError(
-                f"{onde}: os pesos devem somar 1 (somam {sum(pesos.values()):g})."
-            )
-
-        regras[disciplina] = {"media_aprovacao": float(media), "avaliacoes": pesos}
-    return regras
+        raise DadosInvalidosError(f"{caminho.name}: esperado um objeto JSON com as regras.")
+    return caminho.name, bruto
 
 
-#NOTAS E FALTAS DO ALUNO(CSV)
+def _validar_regra(conteudo, onde):
+    """Valida as regras de UMA materia e devolve {media_aprovacao, avaliacoes}."""
+    if not isinstance(conteudo, dict) or "avaliacoes" not in conteudo:
+        raise DadosInvalidosError(f"{onde}: campo 'avaliacoes' é obrigatório.")
+
+    media = conteudo.get("media_aprovacao", 6.0)
+    if isinstance(media, bool) or not isinstance(media, (int, float)):
+        raise DadosInvalidosError(f"{onde}: 'media_aprovacao' deve ser numérica.")
+    if not 0 < media <= NOTA_MAXIMA:
+        raise DadosInvalidosError(f"{onde}: 'media_aprovacao' deve estar entre 0 e 10.")
+
+    avaliacoes = conteudo["avaliacoes"]
+    if not isinstance(avaliacoes, dict) or not avaliacoes:
+        raise DadosInvalidosError(f"{onde}: 'avaliacoes' deve ter ao menos uma avaliação.")
+    pesos = {}
+    for nome, peso in avaliacoes.items():
+        if isinstance(peso, bool) or not isinstance(peso, (int, float)) or peso <= 0:
+            raise DadosInvalidosError(f"{onde}: peso de '{nome}' deve ser um número > 0.")
+        pesos[nome] = float(peso)
+    if abs(sum(pesos.values()) - 1.0) > 1e-6:
+        raise DadosInvalidosError(f"{onde}: os pesos devem somar 1 (somam {sum(pesos.values()):g}).")
+    return {"media_aprovacao": float(media), "avaliacoes": pesos}
+
+
+def carregar_regras(caminho):
+    """Le o JSON com várias materias: {disciplina: {media_aprovacao, avaliacoes}}."""
+    nome, bruto = _ler_json(caminho)
+    return {
+        disciplina: _validar_regra(conteudo, f"{nome}, disciplina '{disciplina}'")
+        for disciplina, conteudo in bruto.items()
+    }
+
+
+def carregar_regras_da_materia(caminho, materia):
+    """Le o JSON de UMA matéria. Aceita dois formatos:"""
+    nome, bruto = _ler_json(caminho)
+    if "avaliacoes" in bruto:
+        return _validar_regra(bruto, nome)
+
+    regras = carregar_regras(caminho)
+    por_nome = {normalizar_nome(disciplina): regra for disciplina, regra in regras.items()}
+    if normalizar_nome(materia) not in por_nome:
+        raise DadosInvalidosError(
+            f"{nome}: não há regras para a matéria '{materia}' (o arquivo tem: {', '.join(regras)})."
+        )
+    return por_nome[normalizar_nome(materia)]
+
+
+
+# Notas e faltas do aluno (CSV)
 def carregar_notas(caminho):
     """Le o CSV do aluno. Devolve {disciplina: {avaliacao: nota | None}}."""
     nome, _, linhas = _ler_csv(caminho, ["disciplina", "avaliacao", "nota"])
@@ -122,10 +146,7 @@ def carregar_notas(caminho):
 
 
 def carregar_frequencia(caminho):
-    """Le as colunas opcionais aulas_totais e faltas do CSV do aluno.
-    Devolve {disciplina: {"aulas_totais": int, "faltas": int}}; disciplinas sem
-    esses dados simplesmente nao aparecem no resultado.
-    """
+    """Le as colunas opcionais aulas_totais e faltas do CSV do aluno."""
     nome, colunas, linhas = _ler_csv(caminho, ["disciplina"])
     frequencia = {}
     if "aulas_totais" not in colunas or "faltas" not in colunas:
@@ -166,29 +187,53 @@ def validar_consistencia(notas, regras):
             )
 
 
-def carregar_historico(caminho):
-    """Le o historico. Devolve {disciplina: [{avaliacao: nota | None}, ...]}.
-    Todas as colunas alem de 'disciplina' e 'aluno' sao avaliacoes, na ordem
-    em que aparecem no cabecalho.
-    """
-    nome, colunas, linhas = _ler_csv(caminho, ["disciplina"])
-    avaliacoes = [c for c in colunas if c not in ("disciplina", "aluno")]
+
+#Uma materia por vez: CSV de notas + JSON de regras
+@dataclass
+class Materia:
+    nome: str                       
+    notas: dict                     
+    regras: dict                    
+    frequencia: Optional[dict]      
+
+
+def carregar_materia(caminho_notas, caminho_regras):
+    """Le e valida o CSV do aluno (UMA materia) e o JSON com as regras dela."""
+    notas = carregar_notas(caminho_notas)
+    if len(notas) != 1:
+        raise DadosInvalidosError(
+            f"{Path(caminho_notas).name}: o arquivo tem {len(notas)} matérias ({', '.join(notas)}). "
+            "Envie um arquivo por matéria."
+        )
+    (nome, notas_da_materia), = notas.items()
+    regras = carregar_regras_da_materia(caminho_regras, nome)
+    validar_consistencia({nome: notas_da_materia}, {nome: regras})
+    return Materia(nome, notas_da_materia, regras, carregar_frequencia(caminho_notas).get(nome))
+
+
+#Historico de turmas passadas: um CSV por materia
+def normalizar_nome(nome):
+    sem_acento = unicodedata.normalize("NFKD", nome).encode("ascii", "ignore").decode("ascii")
+    return "".join(c for c in sem_acento.casefold() if c not in " _-")
+
+
+def listar_materias_com_historico(pasta):
+    pasta = Path(pasta)
+    if not pasta.is_dir():
+        return {}
+    return {normalizar_nome(arquivo.stem): arquivo for arquivo in sorted(pasta.glob("*.csv"))}
+
+
+def buscar_historico(pasta, materia):
+    caminho = listar_materias_com_historico(pasta).get(normalizar_nome(materia))
+    if caminho is None:
+        return None
+
+    nome, colunas, linhas = _ler_csv(caminho, [])
+    avaliacoes = [c for c in colunas if c and c.casefold() != "aluno"]
     if not avaliacoes:
         raise DadosInvalidosError(f"{nome}: nenhuma coluna de avaliação encontrada.")
-
-    historico = {}
-    for numero, linha in linhas:
-        onde = f"{nome}, linha {numero}"
-        if not linha["disciplina"]:
-            raise DadosInvalidosError(f"{onde}: 'disciplina' é obrigatória.")
-        historico.setdefault(linha["disciplina"], []).append(
-            {a: converter_nota(linha.get(a, ""), onde) for a in avaliacoes}
-        )
-    if not historico:
-        raise DadosInvalidosError(f"{nome}: o histórico está vazio.")
-
-    for disciplina, alunos in historico.items():
-        usadas = [a for a in avaliacoes if any(aluno[a] is not None for aluno in alunos)]
-        historico[disciplina] = [{a: aluno[a] for a in usadas} for aluno in alunos]
-    return historico
-
+    return [
+        {a: converter_nota(linha.get(a, ""), f"{nome}, linha {numero}") for a in avaliacoes}
+        for numero, linha in linhas
+    ]
