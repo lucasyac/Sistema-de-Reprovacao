@@ -67,6 +67,37 @@ class Predicao:
         return 1 - self.chance_aprovacao
 
 
+def _alunos_para_treino(historico, avaliacoes):
+    """So entram no treino os alunos que tem todas as notas necessarias."""
+    alunos = [
+        aluno for aluno in historico
+        if all(aluno.get(a) is not None for a in avaliacoes)
+    ]
+    if len(alunos) < MIN_ALUNOS:
+        raise PrevisaoIndisponivelError(
+            f"o histórico tem só {len(alunos)} aluno(s) com as notas {', '.join(avaliacoes)} "
+            f"(mínimo {MIN_ALUNOS})."
+        )
+    return alunos
+
+
+def _treinar_modelos(alunos, base, pendentes):
+    """Uma reta para cada avaliacao pendente, todas a partir da mesma nota base."""
+    xs = [aluno[base] for aluno in alunos]
+    return {a: RegressaoSimples.treinar(xs, [aluno[a] for aluno in alunos]) for a in pendentes}
+
+
+def _limitar_nota(nota):
+    return min(max(nota, 0.0), NOTA_MAXIMA)
+
+
+def _calcular_chance(media_prevista, desvio, media):
+    """P(media final >= media de aprovacao), supondo erros com distribuicao normal."""
+    if desvio == 0:
+        return float(media_prevista >= media - _TOLERANCIA)
+    return 0.5 * math.erfc((media - media_prevista) / desvio / math.sqrt(2))
+
+
 def prever(historico, notas, regras):
     """Preve as avaliacoes pendentes e a chance de aprovacao. historico: lista de {avaliacao: nota | None}, um dict por aluno de turmas
     passadas (saida de carregador.buscar_historico). notas / regras: formato de sistema.calculo, de uma disciplina.
@@ -77,34 +108,20 @@ def prever(historico, notas, regras):
     conhecidas = [a for a in pesos if notas.get(a) is not None]
     pendentes = [a for a in pesos if a not in conhecidas]
 
-    if not pendentes:  
-        return Predicao(None, {}, {}, atual, 0.0, float(atual >= media - _TOLERANCIA))
+    if not pendentes:
+        return Predicao(None, {}, {}, atual, 0.0, _calcular_chance(atual, 0.0, media))
     if not conhecidas:
         raise PrevisaoIndisponivelError(
             "informe ao menos uma nota ja obtida: a regressão simples precisa de uma nota de partida."
         )
 
-    base = conhecidas[-1]  
+    base = conhecidas[-1]  # a ultima nota que o aluno tirou
+    alunos = _alunos_para_treino(historico, [base] + pendentes)
+    modelos = _treinar_modelos(alunos, base, pendentes)
 
-    colunas = [base] + pendentes
-    alunos = [l for l in historico if all(l.get(a) is not None for a in colunas)]
-    if len(alunos) < MIN_ALUNOS:
-        raise PrevisaoIndisponivelError(
-            f"o histórico tem só {len(alunos)} aluno(s) com as notas {', '.join(colunas)} "
-            f"(mínimo {MIN_ALUNOS})."
-        )
-
-    xs = [l[base] for l in alunos]
-    modelos = {a: RegressaoSimples.treinar(xs, [l[a] for l in alunos]) for a in pendentes}
-    previstas = {a: min(max(modelos[a].prever(notas[base]), 0.0), NOTA_MAXIMA) for a in pendentes}
+    previstas = {a: _limitar_nota(modelos[a].prever(notas[base])) for a in pendentes}
     media_prevista = atual + sum(pesos[a] * previstas[a] for a in pendentes)
-
-    
     desvio = sum(pesos[a] * modelos[a].erro_padrao for a in pendentes)
-    if desvio == 0:
-        chance = float(media_prevista >= media - _TOLERANCIA)
-    else:  #P(media final >= média de aprovacao), pela curva normal
-        chance = 0.5 * math.erfc((media - media_prevista) / desvio / math.sqrt(2))
+    chance = _calcular_chance(media_prevista, desvio, media)
 
     return Predicao(base, previstas, modelos, media_prevista, desvio, chance, len(alunos))
-
