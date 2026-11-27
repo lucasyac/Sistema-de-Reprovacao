@@ -8,17 +8,10 @@ from pathlib import Path
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from sistema.carregador import (
+from sistema.fachada import (
     DadosInvalidosError,
-    carregar_materia,
-    listar_materias_com_historico,
-)
-from sistema.predicao import PrevisaoIndisponivelError
-from sistema.relatorio import (
-    formatar_previsao,
-    formatar_relatorio,
-    gerar_previsao,
-    gerar_relatorio,
+    PrevisaoIndisponivelError,
+    SistemaReprovacao,
 )
 
 RAIZ = Path(__file__).resolve().parent.parent
@@ -46,7 +39,7 @@ def _pedir_caminho(entrada, pergunta, ultimo):
     return texto or ultimo
 
 
-def _pedir_materia(entrada, saida, sessao):
+def _pedir_materia(sistema, entrada, saida, sessao):
     """Pede o CSV de notas e o JSON de regras e carrega UMA matéria. Devolve (Materia, caminho do CSV) ou None se o aluno voltou ou houve erro.
     sessao guarda os ultimos arquivos usados com sucesso.
     """
@@ -58,7 +51,7 @@ def _pedir_materia(entrada, saida, sessao):
     if not regras:
         return None
     try:
-        materia = carregar_materia(csv, regras)
+        materia = sistema.carregar_materia(csv, regras)
     except DadosInvalidosError as erro:
         saida(f"Erro: {erro}")
         return None
@@ -67,15 +60,15 @@ def _pedir_materia(entrada, saida, sessao):
 
 
 #Opcoes do menu
-def _opcao_situacao(sessao, entrada, saida):
-    carregada = _pedir_materia(entrada, saida, sessao)
+def _opcao_situacao(sistema, sessao, entrada, saida):
+    carregada = _pedir_materia(sistema, entrada, saida, sessao)
     if carregada:
         materia, _ = carregada
-        saida("\n" + formatar_relatorio(gerar_relatorio(materia)))
+        saida("\n" + sistema.relatorio_situacao(materia))
 
 
-def _opcao_previsao(pasta_historico, sessao, entrada, saida):
-    disponiveis = sorted(a.stem for a in listar_materias_com_historico(pasta_historico).values())
+def _opcao_previsao(sistema, sessao, entrada, saida):
+    disponiveis = sistema.materias_com_previsao()
     saida("\nMatérias com previsão disponível (turmas passadas):")
     for nome in disponiveis:
         saida(f"  - {nome}")
@@ -83,16 +76,16 @@ def _opcao_previsao(pasta_historico, sessao, entrada, saida):
         saida("  (nenhuma: não há arquivos na pasta de histórico)")
     saida("O seu arquivo CSV de notas deve ter o MESMO NOME da matéria (ex.: calculo1.csv).")
 
-    carregada = _pedir_materia(entrada, saida, sessao)
+    carregada = _pedir_materia(sistema, entrada, saida, sessao)
     if not carregada:
         return
     materia, csv = carregada
     try:
-        predicao = gerar_previsao(materia, Path(csv).stem, pasta_historico)
+        texto = sistema.relatorio_previsao(materia, csv)
     except (PrevisaoIndisponivelError, DadosInvalidosError) as erro:
         saida(f"Previsão indisponível: {erro}")
         return
-    saida("\n" + formatar_previsao(materia, predicao))
+    saida("\n" + texto)
 
 
 def executar_terminal(pasta_historico, entrada=None, saida=None):
@@ -100,13 +93,14 @@ def executar_terminal(pasta_historico, entrada=None, saida=None):
     entrada = entrada or input  #resolvidos aqui
     saida = saida or print
     sessao = {}  #ultimos arquivos usados, para nao digitar os caminhos de novo
+    sistema = SistemaReprovacao(pasta_historico)
     while True:
         saida(MENU)
         opcao = entrada("Escolha uma opção: ").strip()
         if opcao == "1":
-            _opcao_situacao(sessao, entrada, saida)
+            _opcao_situacao(sistema, sessao, entrada, saida)
         elif opcao == "2":
-            _opcao_previsao(pasta_historico, sessao, entrada, saida)
+            _opcao_previsao(sistema, sessao, entrada, saida)
         elif opcao == "0":
             saida("Até logo!")
             return
