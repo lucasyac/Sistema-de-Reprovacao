@@ -10,8 +10,16 @@ SITUACAO_EM_RISCO = "em risco"
 RESULTADO_RECUPERACAO = "Recuperação"
 RESULTADO_REPROVADO = "Reprovado"
 
-#Tolerancia para comparar numeros de ponto flutuante 
+#Regras de presenca: (nota minima, presenca minima em %), da maior nota para a menor
+FAIXAS_PRESENCA = [(8.0, 50), (6.5, 65)]
+PRESENCA_PADRAO = 75
+
+#Tolerancia para comparar numeros de ponto flutuante
 _EPS = 1e-9
+
+
+def _atingiu(valor, minimo):
+    return valor >= minimo - _EPS
 
 
 #HISTORIA 1: nota atual
@@ -46,7 +54,7 @@ def calcular_nota_necessaria(notas, regras):
     media = regras.get("media_aprovacao", MEDIA_APROVACAO)
     atual = calcular_nota_atual(notas, regras)
 
-    if atual >= media - _EPS:
+    if _atingiu(atual, media):
         return 0.0
 
     pendente = calcular_peso_pendente(notas, regras)
@@ -64,11 +72,10 @@ def calcular_nota_necessaria(notas, regras):
 
 #Presenca e faltas regras fixas + historia 3
 def presenca_minima_percentual(nota):
-    if nota >= 8.0 - _EPS:
-        return 50
-    if nota >= 6.5 - _EPS:
-        return 65
-    return 75
+    for nota_minima, percentual in FAIXAS_PRESENCA:
+        if _atingiu(nota, nota_minima):
+            return percentual
+    return PRESENCA_PADRAO
 
 
 def presenca_minima(nota):
@@ -99,29 +106,35 @@ def calcular_faltas_permitidas(aulas_totais, faltas, nota_atual):
 
 
 #HISTORIA 2: situacao
-def classificar_situacao(notas, regras, presenca=None):
-    """H2: "aprovado", "reprovado" ou "em risco"."""
-    media = regras.get("media_aprovacao", MEDIA_APROVACAO)
-    atual = calcular_nota_atual(notas, regras)
-    pendente = calcular_peso_pendente(notas, regras)
-    nota_maxima_possivel = atual + NOTA_MAXIMA * pendente
+def _frequencia_suficiente(presenca, nota):
+    return _atingiu(presenca, presenca_minima(nota))
 
-    if calcular_nota_necessaria(notas, regras) == RESULTADO_REPROVADO:
-        return SITUACAO_REPROVADO
 
-    aprovado_por_nota = atual >= media - _EPS
-    if presenca is None:
-        return SITUACAO_APROVADO if aprovado_por_nota else SITUACAO_EM_RISCO
-
+def _classificar_com_presenca(atual, pendente, media, presenca):
     if not 0 <= presenca <= 1:
         raise ValueError("A presença deve ser uma fração entre 0 e 1.")
 
-    if aprovado_por_nota and presenca >= presenca_minima(atual) - _EPS:
-        return SITUACAO_APROVADO
-    if aprovado_por_nota and pendente <= _EPS:
-        return SITUACAO_REPROVADO  #tudo realizado e frequencia insuficiente
+    if _atingiu(atual, media):
+        if _frequencia_suficiente(presenca, atual):
+            return SITUACAO_APROVADO
+        if pendente <= _EPS:
+            return SITUACAO_REPROVADO  #tudo realizado e frequencia insuficiente
 
     #Ainda ha chance de a nota subir e baixar a exigencia de presenca.
-    if presenca >= presenca_minima(nota_maxima_possivel) - _EPS:
+    if _frequencia_suficiente(presenca, atual + NOTA_MAXIMA * pendente):
         return SITUACAO_EM_RISCO
     return SITUACAO_REPROVADO
+
+
+def classificar_situacao(notas, regras, presenca=None):
+    """H2: "aprovado", "reprovado" ou "em risco"."""
+    if calcular_nota_necessaria(notas, regras) == RESULTADO_REPROVADO:
+        return SITUACAO_REPROVADO
+
+    media = regras.get("media_aprovacao", MEDIA_APROVACAO)
+    atual = calcular_nota_atual(notas, regras)
+    if presenca is None:
+        return SITUACAO_APROVADO if _atingiu(atual, media) else SITUACAO_EM_RISCO
+
+    pendente = calcular_peso_pendente(notas, regras)
+    return _classificar_com_presenca(atual, pendente, media, presenca)

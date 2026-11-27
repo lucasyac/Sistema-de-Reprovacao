@@ -8,110 +8,46 @@ from pathlib import Path
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from sistema.carregador import (
-    DadosInvalidosError,
-    carregar_materia,
-    listar_materias_com_historico,
-)
-from sistema.predicao import PrevisaoIndisponivelError
-from sistema.relatorio import (
-    formatar_previsao,
-    formatar_relatorio,
-    gerar_previsao,
-    gerar_relatorio,
-)
+from sistema.comandos import ComandoPrevisao, ComandoSair, ComandoSituacao, Terminal
+from sistema.fachada import SistemaReprovacao
 
 RAIZ = Path(__file__).resolve().parent.parent
 HISTORICO_PADRAO = RAIZ / "dados" / "historico"
 
 LINHA = "=" * 62
-MENU = f"""
-{LINHA}
- SISTEMA DE REPROVAÇÃO
-{LINHA}
- 1 - Ver minha situação em uma matéria
- 2 - Prever minhas notas e a chance de aprovação
- 0 - Sair
-{LINHA}"""
+
+#Para criar uma opcao nova: fazer a classe em comandos.py e colocar nesta lista
+COMANDOS = [ComandoSituacao(), ComandoPrevisao(), ComandoSair()]
 
 
-
-#Perguntas ao aluno 
-def _pedir_caminho(entrada, pergunta, ultimo):
-    """Pede o caminho de um arquivo. Enter reaproveita o ultimo; '0' volta ao menu."""
-    dica = f"Enter = usar o último ({Path(ultimo).name}), 0 = voltar" if ultimo else "0 = voltar"
-    texto = entrada(f"{pergunta} [{dica}]: ").strip().strip("\"'")
-    if texto == "0":
-        return None
-    return texto or ultimo
+def montar_menu(comandos):
+    linhas = ["", LINHA, " SISTEMA DE REPROVAÇÃO", LINHA]
+    for comando in comandos:
+        linhas.append(f" {comando.tecla} - {comando.descricao}")
+    linhas.append(LINHA)
+    return "\n".join(linhas)
 
 
-def _pedir_materia(entrada, saida, sessao):
-    """Pede o CSV de notas e o JSON de regras e carrega UMA matéria. Devolve (Materia, caminho do CSV) ou None se o aluno voltou ou houve erro.
-    sessao guarda os ultimos arquivos usados com sucesso.
-    """
-    saida("\nUma matéria por vez. Modelos de arquivo: pasta exemplos/ (calculo1.csv e calculo1.json).")
-    csv = _pedir_caminho(entrada, "Arquivo CSV com suas notas", sessao.get("csv"))
-    if not csv:
-        return None
-    regras = _pedir_caminho(entrada, "Arquivo JSON com as regras da matéria (pesos)", sessao.get("json"))
-    if not regras:
-        return None
-    try:
-        materia = carregar_materia(csv, regras)
-    except DadosInvalidosError as erro:
-        saida(f"Erro: {erro}")
-        return None
-    sessao["csv"], sessao["json"] = csv, regras
-    return materia, csv
-
-
-#Opcoes do menu
-def _opcao_situacao(sessao, entrada, saida):
-    carregada = _pedir_materia(entrada, saida, sessao)
-    if carregada:
-        materia, _ = carregada
-        saida("\n" + formatar_relatorio(gerar_relatorio(materia)))
-
-
-def _opcao_previsao(pasta_historico, sessao, entrada, saida):
-    disponiveis = sorted(a.stem for a in listar_materias_com_historico(pasta_historico).values())
-    saida("\nMatérias com previsão disponível (turmas passadas):")
-    for nome in disponiveis:
-        saida(f"  - {nome}")
-    if not disponiveis:
-        saida("  (nenhuma: não há arquivos na pasta de histórico)")
-    saida("O seu arquivo CSV de notas deve ter o MESMO NOME da matéria (ex.: calculo1.csv).")
-
-    carregada = _pedir_materia(entrada, saida, sessao)
-    if not carregada:
-        return
-    materia, csv = carregada
-    try:
-        predicao = gerar_previsao(materia, Path(csv).stem, pasta_historico)
-    except (PrevisaoIndisponivelError, DadosInvalidosError) as erro:
-        saida(f"Previsão indisponível: {erro}")
-        return
-    saida("\n" + formatar_previsao(materia, predicao))
+def mensagem_opcao_invalida(comandos):
+    teclas = [comando.tecla for comando in comandos]
+    return f"Opção inválida. Digite {', '.join(teclas[:-1])} ou {teclas[-1]}."
 
 
 def executar_terminal(pasta_historico, entrada=None, saida=None):
     """Laço do menu. Termina quando o aluno escolhe sair."""
     entrada = entrada or input  #resolvidos aqui
     saida = saida or print
-    sessao = {}  #ultimos arquivos usados, para nao digitar os caminhos de novo
-    while True:
-        saida(MENU)
-        opcao = entrada("Escolha uma opção: ").strip()
-        if opcao == "1":
-            _opcao_situacao(sessao, entrada, saida)
-        elif opcao == "2":
-            _opcao_previsao(pasta_historico, sessao, entrada, saida)
-        elif opcao == "0":
-            saida("Até logo!")
-            return
+    terminal = Terminal(SistemaReprovacao(pasta_historico), entrada, saida)
+    opcoes = {comando.tecla: comando for comando in COMANDOS}
+
+    continuar = True
+    while continuar:
+        saida(montar_menu(COMANDOS))
+        comando = opcoes.get(entrada("Escolha uma opção: ").strip())
+        if comando is None:
+            saida(mensagem_opcao_invalida(COMANDOS))
         else:
-            saida("Opção inválida. Digite 1, 2 ou 0.")
+            continuar = comando.executar(terminal)
 
 
 #Ponto de entrada

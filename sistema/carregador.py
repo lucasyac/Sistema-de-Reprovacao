@@ -1,15 +1,11 @@
 """Leitura e validacao dos arquivos de entrada (CSV e JSON)."""
 
-import csv
-import json
 import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
-
-class DadosInvalidosError(ValueError):
-    """Arquivo de entrada com formato ou conteudo invalido."""
+from sistema.leitores import DadosInvalidosError, LeitorCSV, LeitorJSON
 
 
 NOTA_MINIMA, NOTA_MAXIMA = 0.0, 10.0
@@ -17,29 +13,6 @@ NOTA_MINIMA, NOTA_MAXIMA = 0.0, 10.0
 
 
 #AUXILIARES
-def _ler_csv(caminho, colunas_obrigatorias):
-    caminho = Path(caminho)
-    if not caminho.is_file():
-        raise DadosInvalidosError(f"Arquivo não encontrado: {caminho}")
-
-    with caminho.open(newline="", encoding="utf-8-sig") as arquivo:
-        leitor = csv.DictReader(arquivo)
-        colunas = [c.strip() for c in (leitor.fieldnames or [])]
-        faltando = [c for c in colunas_obrigatorias if c not in colunas]
-        if faltando:
-            raise DadosInvalidosError(
-                f"{caminho.name}: coluna(s) obrigatória(s) ausente(s): "
-                f"{', '.join(faltando)}"
-            )
-        linhas = []
-        for numero, linha in enumerate(leitor, start=2): 
-            limpa = {
-                (k or "").strip(): (v or "").strip() for k, v in linha.items() if k
-            }
-            linhas.append((numero, limpa))
-    return caminho.name, colunas, linhas
-
-
 def converter_nota(texto, onde):
     """'' -> None (pendente); aceita vírgula decimal; exige 0 <= nota <= 10."""
     if texto == "":
@@ -64,19 +37,6 @@ def _converter_inteiro(texto, onde, campo):
 
 
 #REGRAS DO PROFESSOR
-def _ler_json(caminho):
-    caminho = Path(caminho)
-    if not caminho.is_file():
-        raise DadosInvalidosError(f"Arquivo não encontrado: {caminho}")
-    try:
-        bruto = json.loads(caminho.read_text(encoding="utf-8-sig"))
-    except json.JSONDecodeError as erro:
-        raise DadosInvalidosError(f"{caminho.name}: JSON inválido ({erro}).") from None
-    if not isinstance(bruto, dict) or not bruto:
-        raise DadosInvalidosError(f"{caminho.name}: esperado um objeto JSON com as regras.")
-    return caminho.name, bruto
-
-
 def _validar_regra(conteudo, onde):
     """Valida as regras de UMA materia e devolve {media_aprovacao, avaliacoes}."""
     if not isinstance(conteudo, dict) or "avaliacoes" not in conteudo:
@@ -103,7 +63,8 @@ def _validar_regra(conteudo, onde):
 
 def carregar_regras(caminho):
     """Le o JSON com várias materias: {disciplina: {media_aprovacao, avaliacoes}}."""
-    nome, bruto = _ler_json(caminho)
+    nome = Path(caminho).name
+    bruto = LeitorJSON().ler(caminho)
     return {
         disciplina: _validar_regra(conteudo, f"{nome}, disciplina '{disciplina}'")
         for disciplina, conteudo in bruto.items()
@@ -112,7 +73,8 @@ def carregar_regras(caminho):
 
 def carregar_regras_da_materia(caminho, materia):
     """Le o JSON de UMA matéria. Aceita dois formatos:"""
-    nome, bruto = _ler_json(caminho)
+    nome = Path(caminho).name
+    bruto = LeitorJSON().ler(caminho)
     if "avaliacoes" in bruto:
         return _validar_regra(bruto, nome)
 
@@ -129,7 +91,8 @@ def carregar_regras_da_materia(caminho, materia):
 # Notas e faltas do aluno (CSV)
 def carregar_notas(caminho):
     """Le o CSV do aluno. Devolve {disciplina: {avaliacao: nota | None}}."""
-    nome, _, linhas = _ler_csv(caminho, ["disciplina", "avaliacao", "nota"])
+    nome = Path(caminho).name
+    _, linhas = LeitorCSV(["disciplina", "avaliacao", "nota"]).ler(caminho)
     notas = {}
     for numero, linha in linhas:
         onde = f"{nome}, linha {numero}"
@@ -147,7 +110,8 @@ def carregar_notas(caminho):
 
 def carregar_frequencia(caminho):
     """Le as colunas opcionais aulas_totais e faltas do CSV do aluno."""
-    nome, colunas, linhas = _ler_csv(caminho, ["disciplina"])
+    nome = Path(caminho).name
+    colunas, linhas = LeitorCSV(["disciplina"]).ler(caminho)
     frequencia = {}
     if "aulas_totais" not in colunas or "faltas" not in colunas:
         return frequencia
@@ -229,7 +193,8 @@ def buscar_historico(pasta, materia):
     if caminho is None:
         return None
 
-    nome, colunas, linhas = _ler_csv(caminho, [])
+    nome = caminho.name
+    colunas, linhas = LeitorCSV().ler(caminho)
     avaliacoes = [c for c in colunas if c and c.casefold() != "aluno"]
     if not avaliacoes:
         raise DadosInvalidosError(f"{nome}: nenhuma coluna de avaliação encontrada.")
